@@ -1,3 +1,4 @@
+
 package com.subvio.app
 
 import android.os.Bundle
@@ -11,9 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,6 +32,17 @@ class MainActivity : ComponentActivity() {
 fun SubvioApp() {
     val background = Color(0xFF10111A)
     val accent = Color(0xFF8B75FF)
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var isDownloading by remember { mutableStateOf(false) }
+    var isReady by remember { mutableStateOf(false) }
+    var progress by remember { mutableIntStateOf(0) }
+
+    var status by remember {
+        mutableStateOf("Türkçe modeli henüz indirilmedi.")
+    }
 
     MaterialTheme {
         Column(
@@ -53,7 +67,7 @@ fun SubvioApp() {
                 fontSize = 15.sp
             )
 
-            Spacer(modifier = Modifier.height(65.dp))
+            Spacer(modifier = Modifier.height(55.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -67,7 +81,7 @@ fun SubvioApp() {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Video seçilmedi",
+                        text = "Türkçe Konuşma Modeli",
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
@@ -76,19 +90,65 @@ fun SubvioApp() {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "Altyazı eklemek için bir video seç.",
+                        text = status,
                         color = Color.LightGray
                     )
 
-                    Spacer(modifier = Modifier.height(22.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    if (isDownloading) {
+                        LinearProgressIndicator(
+                            progress = progress / 100f,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = accent
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "%$progress",
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     Button(
-                        onClick = { },
+                        onClick = {
+                            scope.launch {
+                                isDownloading = true
+                                progress = 0
+                                status = "Model indiriliyor..."
+
+                                try {
+                                    ModelDownloader.download(context) {
+                                        progress = it
+                                    }
+
+                                    isReady = true
+                                    status =
+                                        "Model telefona kaydedildi. Sonraki adımda konuşma tanımaya bağlayacağız."
+
+                                } catch (e: Exception) {
+                                    status = e.message
+                                        ?: "İndirme sırasında hata oluştu."
+                                } finally {
+                                    isDownloading = false
+                                }
+                            }
+                        },
+                        enabled = !isDownloading && !isReady,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = accent
                         )
                     ) {
-                        Text("Video Seç")
+                        Text(
+                            when {
+                                isDownloading -> "İndiriliyor..."
+                                isReady -> "Model İndirildi"
+                                else -> "Türkçe Modeli İndir"
+                            }
+                        )
                     }
                 }
             }
@@ -96,7 +156,7 @@ fun SubvioApp() {
             Spacer(modifier = Modifier.weight(1f))
 
             Text(
-                text = "Tamamen çevrimdışı altyazı teknolojisi",
+                text = "Çevrimdışı altyazı teknolojisi",
                 color = Color.Gray,
                 fontSize = 12.sp
             )
