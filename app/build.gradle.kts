@@ -1,3 +1,4 @@
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +13,8 @@ android {
         applicationId = "com.subvio.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildFeatures {
@@ -37,4 +38,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 }
