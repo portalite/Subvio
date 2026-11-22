@@ -19,6 +19,18 @@ object ModelDownloader {
     private const val MODEL_URL =
         "https://alphacephei.com/vosk/models/vosk-model-small-tr-0.3.zip"
 
+    private fun isValidModel(dir: File): Boolean {
+        val modern =
+            File(dir, "am/final.mdl").isFile &&
+            File(dir, "conf/model.conf").isFile
+
+        val legacy =
+            File(dir, "final.mdl").isFile &&
+            File(dir, "mfcc.conf").isFile
+
+        return modern || legacy
+    }
+
     suspend fun download(
         context: Context,
         onProgress: (Int) -> Unit
@@ -26,8 +38,7 @@ object ModelDownloader {
 
         val modelDirectory = File(context.filesDir, MODEL_NAME)
 
-        // Türkçe modelinde final.mdl doğrudan kök klasördedir.
-        if (File(modelDirectory, "final.mdl").exists()) {
+        if (isValidModel(modelDirectory)) {
             return@withContext modelDirectory
         }
 
@@ -85,8 +96,6 @@ object ModelDownloader {
 
             val rootPath = staging.canonicalPath + File.separator
 
-            var extractedEntries = 0
-
             ZipInputStream(
                 BufferedInputStream(FileInputStream(zipFile))
             ).use { zip ->
@@ -117,29 +126,17 @@ object ModelDownloader {
                         }
                     }
 
-                    extractedEntries++
                     zip.closeEntry()
                     entry = zip.nextEntry
                 }
             }
 
-            if (extractedEntries == 0) {
-                throw Exception("İndirilen dosya geçerli bir ZIP arşivi değil.")
-            }
-
-            // Türkçe modelinin düz klasör yapısını bul.
-            val modelFile = staging.walkTopDown().firstOrNull {
-                it.isFile &&
-                    it.name == "final.mdl" &&
-                    File(it.parentFile, "mfcc.conf").exists() &&
-                    File(it.parentFile, "Gr.fst").exists() &&
-                    File(it.parentFile, "HCLr.fst").exists()
-            } ?: throw Exception(
-                "Türkçe model dosyaları bulunamadı. Arşiv yapısı beklenenden farklı."
-            )
-
-            val extractedModel = modelFile.parentFile
-                ?: throw Exception("Model klasörü bulunamadı.")
+            val extractedModel = staging.walkTopDown()
+                .firstOrNull {
+                    it.isDirectory && isValidModel(it)
+                } ?: throw Exception(
+                    "Model dosyaları bulunamadı. Arşiv yapısı doğrulanamadı."
+                )
 
             modelDirectory.deleteRecursively()
 
@@ -147,7 +144,7 @@ object ModelDownloader {
                 throw Exception("Model klasörü taşınamadı.")
             }
 
-            if (!File(modelDirectory, "final.mdl").exists()) {
+            if (!isValidModel(modelDirectory)) {
                 throw Exception("Model kurulumu doğrulanamadı.")
             }
 
