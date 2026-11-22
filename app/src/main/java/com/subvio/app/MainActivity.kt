@@ -1,6 +1,8 @@
+
 package com.subvio.app
 
 import android.os.Bundle
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,45 +20,62 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            SubvioApp()
-        }
+        setContent { SubvioApp() }
     }
 }
 
 @Composable
 fun SubvioApp() {
-    val background = Color(0xFF10111A)
-    val accent = Color(0xFF8B75FF)
-
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val background = Color(0xFF10111A)
+    val accent = Color(0xFF8B75FF)
+
+    val modelDirectory = remember {
+        File(context.filesDir, "vosk-model-small-tr-0.3")
+    }
+
+    var isReady by remember {
+        mutableStateOf(modelDirectory.exists())
+    }
+
     var isDownloading by remember { mutableStateOf(false) }
-    var isReady by remember { mutableStateOf(false) }
+    var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
 
     var status by remember {
-        mutableStateOf("Türkçe modeli henüz indirilmedi.")
+        mutableStateOf(
+            if (modelDirectory.exists())
+                "Türkçe modeli hazır."
+            else
+                "Türkçe modeli henüz indirilmedi."
+        )
     }
 
     var selectedVideo by remember {
-        mutableStateOf<android.net.Uri?>(null)
+        mutableStateOf<Uri?>(null)
     }
 
     var videoName by remember {
         mutableStateOf("Henüz video seçilmedi.")
     }
 
+    var generatedSrt by remember {
+        mutableStateOf<File?>(null)
+    }
+
     val videoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             selectedVideo = uri
+            generatedSrt = null
 
             try {
                 context.contentResolver.takePersistableUriPermission(
@@ -66,8 +85,28 @@ fun SubvioApp() {
             } catch (_: Exception) {
             }
 
-            videoName = uri.lastPathSegment
-                ?: "Video seçildi"
+            videoName = uri.lastPathSegment ?: "Video seçildi"
+            status = "Video seçildi."
+        }
+    }
+
+    val savePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/x-subrip")
+    ) { uri ->
+        val file = generatedSrt
+
+        if (uri != null && file != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use {
+                    file.inputStream().use { input ->
+                        input.copyTo(it)
+                    }
+                } ?: throw Exception("Dosya kaydedilemedi.")
+
+                status = "Altyazı başarıyla kaydedildi."
+            } catch (e: Exception) {
+                status = e.message ?: "Kaydetme hatası."
+            }
         }
     }
 
@@ -79,22 +118,21 @@ fun SubvioApp() {
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(45.dp))
+            Spacer(Modifier.height(35.dp))
 
             Text(
-                text = "SUBVIO",
+                "SUBVIO",
                 color = accent,
                 fontSize = 34.sp,
                 fontWeight = FontWeight.Black
             )
 
             Text(
-                text = "Videolarına otomatik altyazı ekle.",
-                color = Color.LightGray,
-                fontSize = 15.sp
+                "Videolarına otomatik altyazı ekle.",
+                color = Color.LightGray
             )
 
-            Spacer(modifier = Modifier.height(35.dp))
+            Spacer(Modifier.height(28.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -104,41 +142,36 @@ fun SubvioApp() {
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Türkçe Konuşma Modeli",
+                        "Türkçe Konuşma Modeli",
                         color = Color.White,
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                    Text(
-                        text = status,
-                        color = Color.LightGray
-                    )
+                    Text(status, color = Color.LightGray)
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    if (isDownloading || isProcessing) {
+                        Spacer(Modifier.height(14.dp))
 
-                    if (isDownloading) {
                         LinearProgressIndicator(
-                            progress = progress / 100f,
+                            progress = { progress / 100f },
                             modifier = Modifier.fillMaxWidth(),
                             color = accent
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
                         Text(
-                            text = "%$progress",
+                            "%$progress",
                             color = Color.White
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(Modifier.height(14.dp))
 
                     Button(
                         onClick = {
@@ -154,32 +187,29 @@ fun SubvioApp() {
 
                                     isReady = true
                                     status = "Türkçe modeli hazır."
-
                                 } catch (e: Exception) {
                                     status = e.message
-                                        ?: "İndirme sırasında hata oluştu."
+                                        ?: "Model indirme hatası."
                                 } finally {
                                     isDownloading = false
                                 }
                             }
                         },
-                        enabled = !isDownloading && !isReady,
+                        enabled = !isDownloading &&
+                            !isProcessing && !isReady,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = accent
                         )
                     ) {
                         Text(
-                            when {
-                                isDownloading -> "İndiriliyor..."
-                                isReady -> "Model İndirildi"
-                                else -> "Türkçe Modeli İndir"
-                            }
+                            if (isReady) "Model Hazır"
+                            else "Türkçe Modeli İndir"
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(Modifier.height(20.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -189,29 +219,30 @@ fun SubvioApp() {
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Video Altyazısı",
+                        "Video Altyazısı",
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(Modifier.height(12.dp))
 
                     Text(
-                        text = videoName,
+                        videoName,
                         color = Color.LightGray
                     )
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(Modifier.height(14.dp))
 
                     Button(
                         onClick = {
                             videoPicker.launch(arrayOf("video/*"))
                         },
+                        enabled = !isProcessing,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = accent
                         )
@@ -219,28 +250,88 @@ fun SubvioApp() {
                         Text("Video Seç")
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                    Text(
-                        text = if (selectedVideo != null)
-                            "Video seçildi. Altyazı sistemi sonraki aşamada bağlanacak."
-                        else
-                            "Altyazı oluşturmak için bir video seç.",
-                        color = Color.Gray,
-                        fontSize = 12.sp
-                    )
+                    Button(
+                        onClick = {
+                            val video = selectedVideo
+
+                            if (video == null) {
+                                status = "Önce bir video seç."
+                                return@Button
+                            }
+
+                            if (!modelDirectory.exists()) {
+                                isReady = false
+                                status = "Önce Türkçe modeli indir."
+                                return@Button
+                            }
+
+                            scope.launch {
+                                isProcessing = true
+                                progress = 0
+                                generatedSrt = null
+                                status = "Ses analiz ediliyor..."
+
+                                try {
+                                    val result = VideoTranscriber.transcribe(
+                                        context,
+                                        video,
+                                        modelDirectory
+                                    ) {
+                                        progress = it
+                                    }
+
+                                    generatedSrt = result
+                                    status = "Altyazı hazır! Kaydedebilirsin."
+
+                                    savePicker.launch("subvio_altyazi.srt")
+
+                                } catch (e: Exception) {
+                                    status = e.message
+                                        ?: "Altyazı oluşturulamadı."
+                                } finally {
+                                    isProcessing = false
+                                }
+                            }
+                        },
+                        enabled = !isProcessing && !isDownloading,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accent
+                        )
+                    ) {
+                        Text(
+                            if (isProcessing)
+                                "Altyazı Oluşturuluyor..."
+                            else
+                                "Altyazı Oluştur"
+                        )
+                    }
+
+                    if (generatedSrt != null) {
+                        Spacer(Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                savePicker.launch("subvio_altyazi.srt")
+                            },
+                            enabled = !isProcessing
+                        ) {
+                            Text("Altyazıyı Tekrar Kaydet")
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
 
             Text(
-                text = "Çevrimdışı altyazı teknolojisi",
+                "Çevrimdışı altyazı teknolojisi",
                 color = Color.Gray,
                 fontSize = 12.sp
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
