@@ -26,7 +26,8 @@ object ModelDownloader {
 
         val modelDirectory = File(context.filesDir, MODEL_NAME)
 
-        if (File(modelDirectory, "am/final.mdl").exists()) {
+        // Türkçe modelinde final.mdl doğrudan kök klasördedir.
+        if (File(modelDirectory, "final.mdl").exists()) {
             return@withContext modelDirectory
         }
 
@@ -126,13 +127,19 @@ object ModelDownloader {
                 throw Exception("İndirilen dosya geçerli bir ZIP arşivi değil.")
             }
 
+            // Türkçe modelinin düz klasör yapısını bul.
             val modelFile = staging.walkTopDown().firstOrNull {
                 it.isFile &&
                     it.name == "final.mdl" &&
-                    it.parentFile?.name == "am"
-            } ?: throw Exception("Model dosyası arşivde bulunamadı.")
+                    File(it.parentFile, "mfcc.conf").exists() &&
+                    File(it.parentFile, "Gr.fst").exists() &&
+                    File(it.parentFile, "HCLr.fst").exists()
+            } ?: throw Exception(
+                "Türkçe model dosyaları bulunamadı. Arşiv yapısı beklenenden farklı."
+            )
 
-            val extractedModel = modelFile.parentFile!!.parentFile!!
+            val extractedModel = modelFile.parentFile
+                ?: throw Exception("Model klasörü bulunamadı.")
 
             modelDirectory.deleteRecursively()
 
@@ -140,7 +147,7 @@ object ModelDownloader {
                 throw Exception("Model klasörü taşınamadı.")
             }
 
-            if (!File(modelDirectory, "am/final.mdl").exists()) {
+            if (!File(modelDirectory, "final.mdl").exists()) {
                 throw Exception("Model kurulumu doğrulanamadı.")
             }
 
