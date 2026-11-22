@@ -25,9 +25,8 @@ object ModelDownloader {
     ): File = withContext(Dispatchers.IO) {
 
         val modelDirectory = File(context.filesDir, MODEL_NAME)
-        val modelFile = File(modelDirectory, "am/final.mdl")
 
-        if (modelFile.exists()) {
+        if (File(modelDirectory, "am/final.mdl").exists()) {
             return@withContext modelDirectory
         }
 
@@ -35,100 +34,125 @@ object ModelDownloader {
         val staging = File(context.filesDir, "model-install-temp")
 
         staging.deleteRecursively()
+        zipFile.delete()
         staging.mkdirs()
 
-        val connection = URL(MODEL_URL).openConnection()
-                as HttpURLConnection
-
         try {
-            connection.connectTimeout = 20000
-            connection.readTimeout = 30000
-            connection.connect()
+            val connection =
+                URL(MODEL_URL).openConnection() as HttpURLConnection
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw Exception("Model indirilemedi.")
-            }
+            try {
+                connection.connectTimeout = 30000
+                connection.readTimeout = 60000
+                connection.connect()
 
-            val totalSize = connection.contentLength
-            var downloaded = 0L
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw Exception("Model indirilemedi.")
+                }
 
-            connection.inputStream.use { input ->
-                BufferedInputStream(input).use { bufferedInput ->
-                    BufferedOutputStream(zipFile.outputStream()).use { output ->
-                        val buffer = ByteArray(8192)
-                        var count: Int
+                val totalSize = connection.contentLength
+                var downloaded = 0L
 
-                        while (bufferedInput.read(buffer).also {
-                                count = it
-                            } != -1) {
+                connection.inputStream.use { input ->
+                    BufferedInputStream(input).use { source ->
+                        BufferedOutputStream(zipFile.outputStream()).use { output ->
+                            val buffer = ByteArray(8192)
+                            var count: Int
 
-                            output.write(buffer, 0, count)
-                            downloaded += count
+                            while (source.read(buffer).also {
+                                    count = it
+                                } != -1) {
 
-                            if (totalSize > 0) {
-                                val percent =
-                                    (downloaded * 100 / totalSize).toInt()
+                                output.write(buffer, 0, count)
+                                downloaded += count
 
-                                withContext(Dispatchers.Main) {
-                                    onProgress(percent)
+                                if (totalSize > 0) {
+                                    val percent =
+                                        (downloaded * 100 / totalSize).toInt()
+
+                                    withContext(Dispatchers.Main) {
+                                        onProgress(percent)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } finally {
+                connection.disconnect()
             }
-        } finally {
-            connection.disconnect()
-        }
 
-        val rootPath = staging.canonicalPath +
-                File.separator
+            val rootPath = staging.canonicalPath + File.separator
 
-        ZipInputStream(
-            BufferedInputStream(FileInputStream(zipFile))
-        ).use { zip ->
+            var extractedEntries = 0
 
-            var entry = zip.nextEntry
+            ZipInputStream(
+                BufferedInputStream(FileInputStream(zipFile))
+            ).use { zip ->
 
-            while (entry != null) {
-                val outputFile = File(staging, entry.name)
+                var entry = zip.nextEntry
 
-                if (!outputFile.canonicalPath.startsWith(rootPath)) {
-                    throw Exception("Geçersiz model dosyası.")
-                }
+                while (entry != null) {
+                    val outputFile = File(staging, entry.name)
 
-                if (entry.isDirectory) {
-                    outputFile.mkdirs()
-                } else {
-                    outputFile.parentFile?.mkdirs()
-                    outputFile.outputStream().use { output ->
-                        zip.copyTo(output)
+                    if (!outputFile.canonicalPath.startsWith(rootPath)) {
+                        throw Exception("Geçersiz model arşivi.")
                     }
+
+                    if (entry.isDirectory) {
+                        outputFile.mkdirs()
+                    } else {
+                        outputFile.parentFile?.mkdirs()
+
+                        outputFile.outputStream().use { output ->
+                            val buffer = ByteArray(8192)
+                            var count: Int
+
+                            while (zip.read(buffer).also {
+                                    count = it
+                                } != -1) {
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                    }
+
+                    extractedEntries++
+                    zip.closeEntry()
+                    entry = zip.nextEntry
                 }
-
-                zip.closeEntry()
-                entry = zip.nextEntry
             }
-        }
 
-        val extractedModel = File(staging, MODEL_NAME)
+            if (extractedEntries == 0) {
+                throw Exception("İndirilen dosya geçerli bir ZIP arşivi değil.")
+            }
 
-        if (!File(extractedModel, "am/final.mdl").exists()) {
+            val modelFile = staging.walkTopDown().firstOrNull {
+                it.isFile &&
+                    it.name == "final.mdl" &&
+                    it.parentFile?.name == "am"
+            } ?: throw Exception("Model dosyası arşivde bulunamadı.")
+
+            val extractedModel = modelFile.parentFile!!.parentFile!!
+
+            modelDirectory.deleteRecursively()
+
+            if (!extractedModel.renameTo(modelDirectory)) {
+                throw Exception("Model klasörü taşınamadı.")
+            }
+
+            if (!File(modelDirectory, "am/final.mdl").exists()) {
+                throw Exception("Model kurulumu doğrulanamadı.")
+            }
+
             staging.deleteRecursively()
             zipFile.delete()
-            throw Exception("Model dosyaları eksik.")
-        }
 
-        modelDirectory.deleteRecursively()
+            modelDirectory
 
-        if (!extractedModel.renameTo(modelDirectory)) {
+        } catch (e: Exception) {
             staging.deleteRecursively()
-            throw Exception("Model kurulamadı.")
+            zipFile.delete()
+            throw e
         }
-
-        staging.deleteRecursively()
-        zipFile.delete()
-
-        modelDirectory
     }
 }
