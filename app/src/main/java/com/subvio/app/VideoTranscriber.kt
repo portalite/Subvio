@@ -48,13 +48,13 @@ object VideoTranscriber {
         srtFile.delete()
 
         try {
-            decodeAudio(context, videoUri, pcmFile) { value ->
-                onProgress(value)
-            }
+            decodeAudio(context, videoUri, pcmFile, onProgress)
 
-            val words = recognizeAudio(modelDirectory, pcmFile) { value ->
-                onProgress(value)
-            }
+            val words = recognizeAudio(
+                modelDirectory,
+                pcmFile,
+                onProgress
+            )
 
             if (words.isEmpty()) {
                 throw Exception("Konuşma algılanamadı.")
@@ -62,7 +62,10 @@ object VideoTranscriber {
 
             srtFile.writeText(createSrt(words), Charsets.UTF_8)
 
-            onProgress(100)
+            withContext(Dispatchers.Main) {
+                onProgress(100)
+            }
+
             srtFile
         } finally {
             pcmFile.delete()
@@ -82,7 +85,7 @@ object VideoTranscriber {
             extractor.setDataSource(context, uri, null)
 
             var audioTrack = -1
-            var trackFormat: MediaFormat? = null
+            var foundFormat: MediaFormat? = null
 
             for (i in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(i)
@@ -90,14 +93,16 @@ object VideoTranscriber {
 
                 if (mime.startsWith("audio/")) {
                     audioTrack = i
-                    trackFormat = format
+                    foundFormat = format
                     break
                 }
             }
 
-            if (audioTrack < 0 || trackFormat == null) {
+            if (audioTrack < 0 || foundFormat == null) {
                 throw Exception("Videoda ses kanalı bulunamadı.")
             }
+
+            val trackFormat: MediaFormat = foundFormat
 
             extractor.selectTrack(audioTrack)
 
@@ -118,7 +123,8 @@ object VideoTranscriber {
 
             var inputDone = false
             var outputDone = false
-            var decodedFormat = trackFormat
+
+            var decodedFormat: MediaFormat = trackFormat
 
             FileOutputStream(outputFile).use { output ->
 
@@ -167,12 +173,12 @@ object VideoTranscriber {
                         }
                     }
 
-                    when (
-                        val outputIndex = codec.dequeueOutputBuffer(
-                            info,
-                            BUFFER_TIMEOUT
-                        )
-                    ) {
+                    val outputIndex = codec.dequeueOutputBuffer(
+                        info,
+                        BUFFER_TIMEOUT
+                    )
+
+                    when (outputIndex) {
                         MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
 
                         MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -181,6 +187,7 @@ object VideoTranscriber {
 
                         else -> {
                             if (outputIndex >= 0) {
+
                                 if (info.size > 0) {
                                     val buffer = codec.getOutputBuffer(
                                         outputIndex
@@ -226,6 +233,7 @@ object VideoTranscriber {
                     }
                 }
             }
+
         } finally {
             try {
                 codec?.stop()
@@ -250,6 +258,10 @@ object VideoTranscriber {
             MediaFormat.KEY_CHANNEL_COUNT
         )
 
+        if (sampleRate <= 0 || channels <= 0) {
+            throw Exception("Ses örnekleme bilgisi geçersiz.")
+        }
+
         val encoding = if (
             format.containsKey(MediaFormat.KEY_PCM_ENCODING)
         ) {
@@ -273,6 +285,9 @@ object VideoTranscriber {
         if (frames <= 0) return ByteArray(0)
 
         val outputFrames = frames * TARGET_RATE / sampleRate
+
+        if (outputFrames <= 0) return ByteArray(0)
+
         val output = ByteBuffer.allocate(outputFrames * 2)
             .order(ByteOrder.LITTLE_ENDIAN)
 
