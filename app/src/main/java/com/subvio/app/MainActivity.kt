@@ -1,9 +1,10 @@
-
 package com.subvio.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +22,6 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             SubvioApp()
         }
@@ -44,6 +44,33 @@ fun SubvioApp() {
         mutableStateOf("Türkçe modeli henüz indirilmedi.")
     }
 
+    var selectedVideo by remember {
+        mutableStateOf<android.net.Uri?>(null)
+    }
+
+    var videoName by remember {
+        mutableStateOf("Henüz video seçilmedi.")
+    }
+
+    val videoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            selectedVideo = uri
+
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+            }
+
+            videoName = uri.lastPathSegment
+                ?: "Video seçildi"
+        }
+    }
+
     MaterialTheme {
         Column(
             modifier = Modifier
@@ -52,7 +79,7 @@ fun SubvioApp() {
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(55.dp))
+            Spacer(modifier = Modifier.height(45.dp))
 
             Text(
                 text = "SUBVIO",
@@ -67,7 +94,7 @@ fun SubvioApp() {
                 fontSize = 15.sp
             )
 
-            Spacer(modifier = Modifier.height(55.dp))
+            Spacer(modifier = Modifier.height(35.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -94,7 +121,7 @@ fun SubvioApp() {
                         color = Color.LightGray
                     )
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     if (isDownloading) {
                         LinearProgressIndicator(
@@ -126,8 +153,7 @@ fun SubvioApp() {
                                     }
 
                                     isReady = true
-                                    status =
-                                        "Model telefona kaydedildi. Sonraki adımda konuşma tanımaya bağlayacağız."
+                                    status = "Türkçe modeli hazır."
 
                                 } catch (e: Exception) {
                                     status = e.message
@@ -150,6 +176,59 @@ fun SubvioApp() {
                             }
                         )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF202131)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Video Altyazısı",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = videoName,
+                        color = Color.LightGray
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Button(
+                        onClick = {
+                            videoPicker.launch(arrayOf("video/*"))
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accent
+                        )
+                    ) {
+                        Text("Video Seç")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = if (selectedVideo != null)
+                            "Video seçildi. Altyazı sistemi sonraki aşamada bağlanacak."
+                        else
+                            "Altyazı oluşturmak için bir video seç.",
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
                 }
             }
 
